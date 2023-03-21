@@ -332,16 +332,30 @@ static void setRfLinkRate(const uint8_t index)
     receiver.rfPerfParams = &rfPerfConfig[0][index];
 #endif
     receiver.currentFreq = fhssGetInitialFreq(receiver.freqOffset);
-    // Wait for (11/10) 110% of time it takes to cycle through all freqs in FHSS table (in ms)
-    receiver.cycleIntervalMs = ((uint32_t)11U * fhssGetNumEntries() * receiver.modParams->fhssHopInterval * receiver.modParams->interval) / (10U * 1000U);
 
-    receiver.config(receiver.modParams->bw, receiver.modParams->sf, receiver.modParams->cr, receiver.currentFreq, receiver.modParams->preambleLen, receiver.UID[5] & 0x01);
+    uint32_t interval = receiver.modParams->interval;
+    //interval = interval * 12 / 10;
+
+    // Wait for (11/10) 110% of time it takes to cycle through all freqs in FHSS table (in ms)
+    receiver.cycleIntervalMs = ((uint32_t)11U * fhssGetNumEntries() * receiver.modParams->fhssHopInterval * interval) / (10U * 1000U);
+
+    receiver.config(
+      receiver.modParams->bw,
+      receiver.modParams->sf,
+      receiver.modParams->cr,
+      receiver.currentFreq,
+      receiver.modParams->preambleLen,
+      receiver.UID[5] & 0x01,
+      elrsUidToSeed(receiver.UID),
+      crcInitializer,
+      receiver.modParams->radioType == RADIO_TYPE_SX128x_FLRC
+    );
 #if defined(USE_RX_SX1280)
     if (rxExpressLrsSpiConfig()->domain == CE2400)
       sx1280SetOutputPower(10);
 #endif
 
-    expressLrsUpdateTimerInterval(receiver.modParams->interval);
+    expressLrsUpdateTimerInterval(interval);
 
     rssiFilterReset();
     receiver.nextRateIndex = index; // presumably we just handled this
@@ -414,7 +428,7 @@ static void expressLrsSendTelemResp(void)
         otaPkt.tlm_dl.ul_link_stats.antenna = 0;
         otaPkt.tlm_dl.ul_link_stats.modelMatch = connectionHasModelMatch;
         otaPkt.tlm_dl.ul_link_stats.lq = receiver.uplinkLQ;
-        otaPkt.tlm_dl.ul_link_stats.SNR = meanAccumulatorCalc(&snrFilter, -16);
+        otaPkt.tlm_dl.ul_link_stats.SNR = receiver.freqOffset * 127 / (200000/SX1280_FREQ_STEP); // meanAccumulatorCalc(&snrFilter, -16);
 #ifdef USE_MSP_OVER_TELEMETRY
         otaPkt.tlm_dl.ul_link_stats.mspConfirm = getCurrentMspConfirm() ? 1 : 0;
 #else
@@ -575,7 +589,7 @@ static void gotConnection(const uint32_t timeStampMs)
 //setup radio
 static void initializeReceiver(void)
 {
-    fhssGenSequence(receiver.UID, rxExpressLrsSpiConfig()->domain);
+    fhssGenSequence(elrsUidToSeed(receiver.UID), rxExpressLrsSpiConfig()->domain);
     lqReset();
     receiver.nonceRX = 0;
     receiver.freqOffset = 0;
@@ -734,6 +748,12 @@ rx_spi_received_e processRFPacket(volatile uint8_t *payload, uint32_t timeStampU
 {
     volatile elrsOtaPacket_t * const otaPktPtr = (elrsOtaPacket_t * const) dmaBuffer;
 
+    receiver.getRfLinkInfo(&receiver.rssi, &receiver.snr);
+    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 0, receiver.snr);
+    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 1, dmaBuffer[0]);
+    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 2, dmaBuffer[1]);
+    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 3, dmaBuffer[2]);
+
     if (!validatePacketCrcStd(otaPktPtr)) {
         return RX_SPI_RECEIVED_NONE;
     }
@@ -776,6 +796,8 @@ rx_spi_received_e processRFPacket(volatile uint8_t *payload, uint32_t timeStampU
 
     // Store the LQ/RSSI/Antenna
     receiver.getRfLinkInfo(&receiver.rssi, &receiver.snr);
+    receiver.handleFreqCorrection(&receiver.freqOffset, receiver.currentFreq);
+
     meanAccumulatorAdd(&snrFilter, receiver.snr);
     // Received a packet, that's the definition of LQ
     lqIncrease();
@@ -824,7 +846,7 @@ static void cycleRfMode(const uint32_t timeStampMs)
     if (receiver.lockRFmode == false && (timeStampMs - receiver.rfModeCycledAtMs) > (receiver.cycleIntervalMs * receiver.rfModeCycleMultiplier)) {
         receiver.rfModeCycledAtMs = timeStampMs;
         receiver.lastSyncPacketMs = timeStampMs;           // reset this variable
-        receiver.rateIndex = (receiver.rateIndex + 1) % ELRS_RATE_MAX;
+        receiver.rateIndex = (receiver.rateIndex + 1) % (domainIsTeam24() ? ELRS_RATE_MAX_24 : ELRS_RATE_MAX_900);
         setRfLinkRate(receiver.rateIndex); // switch between rates
         receiver.statsUpdatedAtMs = timeStampMs;
         lqReset();
@@ -1098,10 +1120,10 @@ void expressLrsDoTelem(void)
     expressLrsHandleTelemetryUpdate();
     expressLrsSendTelemResp();
     
-    if (!domainIsTeam24() && !receiver.didFhss && !expressLrsTelemRespReq() && lqPeriodIsSet()) {
+    if (!receiver.didFhss && !expressLrsTelemRespReq() && lqPeriodIsSet()) {
         // TODO No need to handle this on SX1280, but will on SX127x
         // TODO this needs to be DMA aswell, SX127x unlikely to work right now
-        receiver.handleFreqCorrection(receiver.freqOffset, receiver.currentFreq); //corrects for RX freq offset
+        receiver.handleFreqCorrection(&receiver.freqOffset, receiver.currentFreq); //corrects for RX freq offset
     }
 }
 
@@ -1130,10 +1152,10 @@ rx_spi_received_e expressLrsDataReceived(uint8_t *payloadBuffer)
     handleConfigUpdate(timeStampMs);
     handleLinkStatsUpdate(timeStampMs);
 
-    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 0, lostConnectionCounter);
-    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 1, receiver.rssiFiltered);
-    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 2, receiver.snr / 4);
-    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 3, receiver.uplinkLQ);
+    //DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 0, lostConnectionCounter);
+    //DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 1, receiver.rssiFiltered);
+    //DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 2, receiver.snr / 4);
+    //DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 3, receiver.uplinkLQ);
 
     receiver.inBindingMode ? rxSpiLedBlinkBind() : rxSpiLedBlinkRxLoss(rfPacketStatus);
 
