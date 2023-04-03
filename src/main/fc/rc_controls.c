@@ -85,7 +85,7 @@ PG_RESET_TEMPLATE(rcControlsConfig_t, rcControlsConfig,
 PG_REGISTER_WITH_RESET_TEMPLATE(armingConfig_t, armingConfig, PG_ARMING_CONFIG, 1);
 
 PG_RESET_TEMPLATE(armingConfig_t, armingConfig,
-    .gyro_cal_on_first_arm = 0,  // TODO - Cleanup retarded arm support
+    .gyro_cal_on_first_arm = 0,
     .auto_disarm_delay = 5
 );
 
@@ -103,11 +103,6 @@ PG_RESET_TEMPLATE(flight3DConfig_t, flight3DConfig,
 bool isUsingSticksForArming(void)
 {
     return isUsingSticksToArm;
-}
-
-bool areSticksInApModePosition(uint16_t ap_mode)
-{
-    return fabsf(rcCommand[ROLL]) < ap_mode && fabsf(rcCommand[PITCH]) < ap_mode;
 }
 
 throttleStatus_e calculateThrottleStatus(void)
@@ -414,10 +409,6 @@ void processRcStickPositions(void)
         cameraControlKeyPress(CAMERA_CONTROL_KEY_UP, 2000);
     }
 #endif
-}
-
-int32_t getRcStickDeflection(int32_t axis, uint16_t midrc) {
-    return MIN(abs((int32_t)rcData[axis] - midrc), 500);
 }
 
 void rcControlsInit(void)

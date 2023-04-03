@@ -44,7 +44,6 @@
 #include "drivers/accgyro/accgyro_spi_bmi270.h"
 #include "drivers/accgyro/accgyro_spi_icm20649.h"
 #include "drivers/accgyro/accgyro_spi_icm20689.h"
-#include "drivers/accgyro/accgyro_spi_icm20689.h"
 #include "drivers/accgyro/accgyro_spi_icm426xx.h"
 #include "drivers/accgyro/accgyro_spi_lsm6dso.h"
 #include "drivers/accgyro/accgyro_spi_mpu6000.h"
@@ -75,7 +74,8 @@
 #if !defined(USE_GYRO_L3G4200D) && !defined(USE_GYRO_MPU3050) && !defined(USE_GYRO_MPU6050) && \
     !defined(USE_GYRO_MPU6500) && !defined(USE_GYRO_SPI_ICM20689) && !defined(USE_GYRO_SPI_MPU6000) && \
     !defined(USE_GYRO_SPI_MPU6500) && !defined(USE_GYRO_SPI_MPU9250) && !defined(USE_GYRO_L3GD20) && \
-    !defined(USE_GYRO_SPI_ICM42605) && !defined(USE_GYRO_SPI_ICM42688P) && !defined(USE_ACCGYRO_BMI270) && !defined(USE_VIRTUAL_GYRO)
+    !defined(USE_GYRO_SPI_ICM42605) && !defined(USE_GYRO_SPI_ICM42688P) && !defined(USE_ACCGYRO_BMI270) && \
+    !defined(USE_ACCGYRO_LSM6DSO) && !defined(USE_VIRTUAL_GYRO)
 #error At least one USE_GYRO device definition required
 #endif
 

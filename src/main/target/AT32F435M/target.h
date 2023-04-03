@@ -34,8 +34,6 @@
 #define HANG_ON_ERRORS
 #endif
 
-#define USE_VIRTUAL_GYRO
-
 #define USE_UART1
 #define USE_UART2
 #define USE_UART3
@@ -45,6 +43,11 @@
 #define TARGET_IO_PORTB         0xffff
 #define TARGET_IO_PORTC         0xffff
 #define TARGET_IO_PORTD         0xffff
+#define TARGET_IO_PORTE         0xffff
+#define TARGET_IO_PORTF         0xffff
+#define TARGET_IO_PORTG         0xffff
+#define TARGET_IO_PORTH         0xffff
+
 
 #define USE_SPI
 #define USE_SPI_DEVICE_1
