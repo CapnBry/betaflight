@@ -748,12 +748,6 @@ rx_spi_received_e processRFPacket(volatile uint8_t *payload, uint32_t timeStampU
 {
     volatile elrsOtaPacket_t * const otaPktPtr = (elrsOtaPacket_t * const) dmaBuffer;
 
-    receiver.getRfLinkInfo(&receiver.rssi, &receiver.snr);
-    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 0, receiver.snr);
-    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 1, dmaBuffer[0]);
-    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 2, dmaBuffer[1]);
-    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 3, dmaBuffer[2]);
-
     if (!validatePacketCrcStd(otaPktPtr)) {
         return RX_SPI_RECEIVED_NONE;
     }

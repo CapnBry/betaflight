@@ -27,9 +27,14 @@
 
 #include "common/time.h"
 
-#define REG_LR_FIRMWARE_VERSION_MSB 0x0153 //The address of the register holding the firmware version MSB
+#define SX1280_REG_FIRMWARE_VERSION_MSB   0x0153 //The address of the register holding the firmware version MSB
+#define SX1280_REG_RX_GAIN_REGIME         0x0891
+#define SX1280_REG_SF_ADDITIONAL_CONFIG   0x0925
 #define SX1280_REG_LR_ESTIMATED_FREQUENCY_ERROR_MSB 0x0954
 #define SX1280_REG_LR_ESTIMATED_FREQUENCY_ERROR_MASK 0x0FFFFF
+#define SX1280_REG_FLRC_CRC_SEED          0x09C8
+#define SX1280_REG_FLRC_SYNC_WORD         0x09CF
+#define SX1280_REG_FLRC_SYNC_ADDR_CTRL    0x09CD
 
 #define SX1280_XTAL_FREQ 52000000
 #define SX1280_FREQ_STEP (SX1280_XTAL_FREQ / 262144.0)

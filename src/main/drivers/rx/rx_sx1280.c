@@ -76,8 +76,6 @@ bool sx1280IsBusy(void)
     return IORead(busy);
 }
 
-uint8_t sx1280cnt;
-
 FAST_CODE static bool sx1280PollBusy(void)
 {
     uint32_t startTime = micros();
@@ -221,8 +219,7 @@ bool sx1280Init(IO_t resetPin, IO_t busyPin)
     IOConfigGPIO(resetPin, IOCFG_IN_FLOATING); // leave floating, internal pullup on sx1280 side
     delay(20);
 
-    uint16_t firmwareRev = (((sx1280ReadRegister(REG_LR_FIRMWARE_VERSION_MSB)) << 8) | (sx1280ReadRegister(REG_LR_FIRMWARE_VERSION_MSB + 1)));
-
+    uint16_t firmwareRev = (((sx1280ReadRegister(SX1280_REG_FIRMWARE_VERSION_MSB)) << 8) | (sx1280ReadRegister(SX1280_REG_FIRMWARE_VERSION_MSB + 1)));
     if ((firmwareRev == 0) || (firmwareRev == 65535)) {
         return false;
     }
@@ -230,6 +227,10 @@ bool sx1280Init(IO_t resetPin, IO_t busyPin)
     // Record the dev pointer for callbacks
     extDevice_t *dev = rxSpiGetDevice();
     dev->callbackArg = (uint32_t)dev;
+
+    sx1280SetMode(SX1280_MODE_STDBY_RC);
+    sx1280WriteCommand(SX1280_RADIO_SET_AUTOFS, 0x01);
+    sx1280WriteRegister(SX1280_REG_RX_GAIN_REGIME, sx1280ReadRegister(SX1280_REG_RX_GAIN_REGIME) | 0xC0); //default is low power mode, switch to high sensitivity instead
 
     return true;
 }
@@ -340,7 +341,7 @@ uint8_t sx1280GetStatus(void)
     return buffer[0];
 }
 
-void sx1280ConfigModParamsLora(const sx1280LoraBandwidths_e bw, const sx1280LoraSpreadingFactors_e sf, const sx1280LoraCodingRates_e cr)
+static void sx1280ConfigModParamsLora(const sx1280LoraBandwidths_e bw, const sx1280LoraSpreadingFactors_e sf, const sx1280LoraCodingRates_e cr)
 {
     uint8_t rfparams[3];
     rfparams[0] = (uint8_t)sf;
@@ -352,18 +353,18 @@ void sx1280ConfigModParamsLora(const sx1280LoraBandwidths_e bw, const sx1280Lora
     switch (sf) {
     case SX1280_LORA_SF5:
     case SX1280_LORA_SF6:
-        sx1280WriteRegister(0x925, 0x1E); // SX1280_REG_SF_ADDITIONAL_CONFIG for SF5 or SF6
+        sx1280WriteRegister(SX1280_REG_SF_ADDITIONAL_CONFIG, 0x1E); // SF5 or SF6
         break;
     case SX1280_LORA_SF7:
     case SX1280_LORA_SF8:
-        sx1280WriteRegister(0x925, 0x37); // SX1280_REG_SF_ADDITIONAL_CONFIG for SF7 or SF8
+        sx1280WriteRegister(SX1280_REG_SF_ADDITIONAL_CONFIG, 0x37); // SF7 or SF8
         break;
     default:
-        sx1280WriteRegister(0x925, 0x32); // SX1280_REG_SF_ADDITIONAL_CONFIG for SF9, SF10, SF11, SF12
+        sx1280WriteRegister(SX1280_REG_SF_ADDITIONAL_CONFIG, 0x32); // SF9, SF10, SF11, SF12
     }
 }
 
-void sx1280SetPacketParamsLora(const uint8_t preambleLength, const sx1280LoraPacketLengthsModes_e headerType, const uint8_t payloadLength, 
+static void sx1280SetPacketParamsLora(const uint8_t preambleLength, const sx1280LoraPacketLengthsModes_e headerType, const uint8_t payloadLength,
                            const sx1280LoraCrcModes_e crc, const bool invertIQ)
 {
     uint8_t buf[7];
@@ -375,30 +376,28 @@ void sx1280SetPacketParamsLora(const uint8_t preambleLength, const sx1280LoraPac
     buf[5] = 0x00;
     buf[6] = 0x00;
 
-    sx1280WriteCommandBurst(SX1280_RADIO_SET_PACKETPARAMS, buf, sizeof(buf));
+    sx1280WriteCommandBurst(SX1280_RADIO_SET_PACKETPARAMS, buf, 7);
 }
 
-void sx1280ConfigModParamsFlrc(const SX1280_RadioFlrcBandwidths_t bw, const SX1280_RadioFlrcCodingRates_t cr, const SX1280_RadioFlrcGaussianFilter_t bt)
+static void sx1280ConfigModParamsFlrc(const SX1280_RadioFlrcBandwidths_t bw, const SX1280_RadioFlrcCodingRates_t cr, const SX1280_RadioFlrcGaussianFilter_t bt)
 {
     uint8_t rfparams[3];
+
     rfparams[0] = (uint8_t)bw;
     rfparams[1] = (uint8_t)cr;
     rfparams[2] = (uint8_t)bt;
 
     sx1280WriteCommandBurst(SX1280_RADIO_SET_MODULATIONPARAMS, rfparams, 3);
+    sx1280PollBusy();
 }
 
-void sx1280SetPacketParamsFlrc(uint8_t PreambleLength,
+static void sx1280SetPacketParamsFlrc(uint8_t PreambleLength,
                                uint8_t HeaderType,
                                uint8_t PayloadLength,
                                uint32_t syncWord,
                                uint16_t crcSeed,
                                uint8_t cr)
 {
-    if (PreambleLength < 8)
-        PreambleLength = 8;
-    PreambleLength = ((PreambleLength / 4) - 1) << 4;
-
     uint8_t buf[7];
     buf[0] = PreambleLength;                    // AGCPreambleLength
     buf[1] = SX1280_FLRC_SYNC_WORD_LEN_P32S;    // SyncWordLength
@@ -412,7 +411,7 @@ void sx1280SetPacketParamsFlrc(uint8_t PreambleLength,
     // CRC seed (use dedicated cipher)
     buf[0] = (uint8_t)(crcSeed >> 8);
     buf[1] = (uint8_t)crcSeed;
-    sx1280WriteRegisterBurst(0x09C8, buf, 2); // SX1280_REG_FLRC_CRC_SEED
+    sx1280WriteRegisterBurst(SX1280_REG_FLRC_CRC_SEED, buf, 2);
 
     // Set SyncWord1
     buf[0] = (uint8_t)(syncWord >> 24);
@@ -433,36 +432,38 @@ void sx1280SetPacketParamsFlrc(uint8_t PreambleLength,
             buf[3] |= 0x80; // 0x80 or 0x40 would work
     }
 
-    sx1280WriteRegisterBurst(0x09CF, buf, 4); // SX1280_REG_FLRC_SYNC_WORD
+    sx1280WriteRegisterBurst(SX1280_REG_FLRC_SYNC_WORD, buf, 4);
+
+    // Set permissible sync errors = 0
+    sx1280WriteRegister(SX1280_REG_FLRC_SYNC_ADDR_CTRL, sx1280ReadRegister(SX1280_REG_FLRC_SYNC_ADDR_CTRL) & 0xf0);
 }
 
-void sx1280Config(const uint8_t bw, const uint8_t sf, const uint8_t cr,
+void sx1280Config(const uint8_t bw, const uint8_t sfbt, const uint8_t cr,
                   const uint32_t freq, const uint8_t preambleLength, const bool iqInverted,
                   const uint32_t flrcSyncWord, const uint16_t flrcCrcSeed, const bool isFlrc)
 {
     sx1280SetMode(SX1280_MODE_STDBY_RC);
 
-    // Common Params
-    sx1280WriteCommand(SX1280_RADIO_SET_AUTOFS, 0x01);
-    sx1280WriteRegister(0x0891, sx1280ReadRegister(0x0891) | 0xC0);   //default is low power mode, switch to high sensitivity instead
-    sx1280SetOutputPower(13); //default is max power (12.5dBm for SX1280 RX)
-    sx1280WriteCommand(SX1280_RADIO_SET_PACKETTYPE, isFlrc ? SX1280_PACKET_TYPE_FLRC : SX1280_PACKET_TYPE_LORA);
-
     if (isFlrc)
     {
-        sx1280ConfigModParamsFlrc(bw, cr, sf);
+        sx1280WriteCommand(SX1280_RADIO_SET_PACKETTYPE, SX1280_PACKET_TYPE_FLRC);
+        sx1280ConfigModParamsFlrc(bw, cr, sfbt);
         sx1280SetPacketParamsFlrc(preambleLength, SX1280_FLRC_PACKET_FIXED_LENGTH, 8, flrcSyncWord, flrcCrcSeed, cr);
-    }
-    {
-        sx1280ConfigModParamsLora(bw, sf, cr);
+    } else {
+        sx1280WriteCommand(SX1280_RADIO_SET_PACKETTYPE, SX1280_PACKET_TYPE_LORA);
+        sx1280ConfigModParamsLora(bw, sfbt, cr);
         sx1280SetPacketParamsLora(preambleLength, SX1280_LORA_PACKET_FIXED_LENGTH, 8, SX1280_LORA_CRC_OFF, iqInverted);
     }
 
-    sx1280SetFrequencyReg(freq);
+    sx1280SetDioIrqParams(
+      SX1280_IRQ_TX_DONE | SX1280_IRQ_RX_DONE | SX1280_IRQ_SYNCWORD_VALID | SX1280_IRQ_SYNCWORD_ERROR | SX1280_IRQ_CRC_ERROR, // irqMask
+      SX1280_IRQ_TX_DONE | SX1280_IRQ_RX_DONE, // dio1Mask
+      SX1280_IRQ_RADIO_NONE,
+      SX1280_IRQ_RADIO_NONE
+    );
 
-    uint8_t dio1Mask = SX1280_IRQ_TX_DONE | SX1280_IRQ_RX_DONE;
-    uint8_t irqMask  = SX1280_IRQ_TX_DONE | SX1280_IRQ_RX_DONE | SX1280_IRQ_SYNCWORD_VALID | SX1280_IRQ_SYNCWORD_ERROR | SX1280_IRQ_CRC_ERROR;
-    sx1280SetDioIrqParams(irqMask, dio1Mask, SX1280_IRQ_RADIO_NONE, SX1280_IRQ_RADIO_NONE);
+    sx1280SetOutputPower(13); //default is max power (12.5dBm for SX1280 RX)
+    sx1280SetFrequencyReg(freq);
 }
 
 void sx1280SetOutputPower(const int8_t power)
@@ -666,12 +667,7 @@ FAST_IRQ_HANDLER static busStatus_e sx1280IrqStatusRead(uint32_t arg)
 {
     extDevice_t *dev = (extDevice_t *)arg;
 
-    //sx1280cnt = dev->bus->curSegment->u.buffers.rxData[3];
     uint16_t irqStatus = (dev->bus->curSegment->u.buffers.rxData[2] << 8) | dev->bus->curSegment->u.buffers.rxData[3];
-
-    //if (irqStatus & SX1280_IRQ_CRC_ERROR)
-    //if (irqStatus & SX1280_IRQ_SYNCWORD_ERROR)
-          //++sx1280cnt;
 
     if (irqStatus & SX1280_IRQ_TX_DONE) {
         irqReason = ELRS_DIO_TX_DONE;
@@ -694,7 +690,6 @@ FAST_IRQ_HANDLER static void sx1280IrqClearStatus(extiCallbackRec_t *cb)
     UNUSED(cb);
 
     sx1280ClearBusyFn();
-    ++sx1280cnt;
     STATIC_DMA_DATA_AUTO uint8_t irqCmd[] = {SX1280_RADIO_CLR_IRQSTATUS, 0, 0};
 
     irqCmd[1] = (uint8_t)(((uint16_t)SX1280_IRQ_RADIO_ALL >> 8) & 0x00FF);
@@ -790,43 +785,12 @@ static void sx1280DoReadBuffer(extiCallbackRec_t *cb)
     spiSequence(dev, segments);
 }
 
-// static busStatus_e sx1280ReadFreqErrorComplete(uint32_t arg)
-// {
-    // sx1280SetBusyFn(sx1280GetPacketStats);
-    
-    // extDevice_t *dev = (extDevice_t *)arg;
-    // uint8_t feiMsb = dev->bus->curSegment->u.buffers.rxData[4];
-    // if (feiMsb & 0x08)
-      // freqError = true; // invertIQ;
-    // else
-      // freqError = false; // !invertIQ;
-
-    // return BUS_READY;
-// }
-
-// static void sx1280GetFreqError(extiCallbackRec_t *cb)
-// {
-    // UNUSED(cb);
-
-    // extDevice_t *dev = rxSpiGetDevice();
-    // STATIC_DMA_DATA_AUTO uint8_t getStatsCmd[] = {SX1280_RADIO_READ_REGISTER, 0x09, 0x54, 0, 0};
-    // STATIC_DMA_DATA_AUTO uint8_t stats[sizeof(getStatsCmd)];
-
-    // sx1280ClearBusyFn();
-    // static busSegment_t segments[] = {
-            // {.u.buffers = {getStatsCmd, stats}, sizeof(getStatsCmd), true, sx1280ReadFreqErrorComplete},
-            // {.u.link = {NULL, NULL}, 0, false, NULL},
-    // };
-
-    // spiSequence(dev, segments);
-// }
-
 // Get the Packet Status and RSSI
 static busStatus_e sx1280ReadBufferComplete(uint32_t arg)
 {
     UNUSED(arg);
 
-    sx1280SetBusyFn(sx1280GetPacketStats); //sx1280GetPacketStats / sx1280GetFreqError
+    sx1280SetBusyFn(sx1280GetPacketStats);
 
     return BUS_READY;
 }
