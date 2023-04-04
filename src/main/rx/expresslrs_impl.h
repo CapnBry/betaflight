@@ -87,6 +87,7 @@ typedef struct elrsReceiver_s {
     uint32_t rfModeCycledAtMs;
     uint8_t rateIndex;
     uint8_t nextRateIndex;
+    uint8_t switchMode;
 
     uint32_t gotConnectionMs;
     uint32_t lastSyncPacketMs;
