@@ -333,11 +333,8 @@ static void setRfLinkRate(const uint8_t index)
 #endif
     receiver.currentFreq = fhssGetInitialFreq(receiver.freqOffset);
 
-    uint32_t interval = receiver.modParams->interval;
-    //interval = interval * 12 / 10;
-
     // Wait for (11/10) 110% of time it takes to cycle through all freqs in FHSS table (in ms)
-    receiver.cycleIntervalMs = ((uint32_t)11U * fhssGetNumEntries() * receiver.modParams->fhssHopInterval * interval) / (10U * 1000U);
+    receiver.cycleIntervalMs = ((uint32_t)11U * fhssGetNumEntries() * receiver.modParams->fhssHopInterval * receiver.modParams->interval) / (10U * 1000U);
 
     receiver.config(
       receiver.modParams->bw,
@@ -355,7 +352,7 @@ static void setRfLinkRate(const uint8_t index)
       sx1280SetOutputPower(10);
 #endif
 
-    expressLrsUpdateTimerInterval(interval);
+    expressLrsUpdateTimerInterval(receiver.modParams->interval);
 
     rssiFilterReset();
     receiver.nextRateIndex = index; // presumably we just handled this
@@ -601,8 +598,8 @@ static void initializeReceiver(void)
 #endif //USE_RX_RSNR
     receiver.snr = 0;
     receiver.uplinkLQ = 0;
-    receiver.rateIndex = receiver.inBindingMode ? bindingRateIndex : rxExpressLrsSpiConfig()->rateIndex;
     receiver.switchMode = 0;
+    receiver.rateIndex = receiver.inBindingMode ? bindingRateIndex : rxExpressLrsSpiConfig()->rateIndex;
     setRfLinkRate(receiver.rateIndex);
 
     receiver.started = false;
