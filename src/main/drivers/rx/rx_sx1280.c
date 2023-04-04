@@ -52,9 +52,9 @@
 
 // The following global variables are accessed from interrupt context to process the sequence of steps in packet processing
 // As there is only ever one device, no need to add a device context; globals will do
-static volatile dioReason_e irqReason; // Used to pass irq status from sx1280IrqStatusRead() to sx1280ProcessIrq()
+static dioReasonFlags_e irqReason; // Used to pass irq status from sx1280IrqStatusRead() to sx1280ProcessIrq()
 static volatile uint8_t packetStats[2];
-static volatile uint8_t FIFOaddr; // Used to pass data from sx1280GotFIFOAddr() to sx1280DoReadBuffer()
+static uint8_t FIFOaddr; // Used to pass data from sx1280GotFIFOAddr() to sx1280DoReadBuffer()
 
 static IO_t busy;
 
@@ -67,6 +67,7 @@ static busyIntContext_t busyIntContext;
 static volatile timeUs_t sx1280Processing;
 
 static volatile bool pendingDoFHSS = false;
+static sx1280PacketTypes_e sx1280PacketMode;
 
 #define SX1280_BUSY_TIMEOUT_US 1000
 
@@ -382,13 +383,11 @@ static void sx1280SetPacketParamsLora(const uint8_t preambleLength, const sx1280
 static void sx1280ConfigModParamsFlrc(const SX1280_RadioFlrcBandwidths_t bw, const SX1280_RadioFlrcCodingRates_t cr, const SX1280_RadioFlrcGaussianFilter_t bt)
 {
     uint8_t rfparams[3];
-
     rfparams[0] = (uint8_t)bw;
     rfparams[1] = (uint8_t)cr;
     rfparams[2] = (uint8_t)bt;
 
     sx1280WriteCommandBurst(SX1280_RADIO_SET_MODULATIONPARAMS, rfparams, 3);
-    sx1280PollBusy();
 }
 
 static void sx1280SetPacketParamsFlrc(uint8_t PreambleLength,
@@ -398,6 +397,10 @@ static void sx1280SetPacketParamsFlrc(uint8_t PreambleLength,
                                uint16_t crcSeed,
                                uint8_t cr)
 {
+    if (PreambleLength < 8)
+        PreambleLength = 8;
+    PreambleLength = ((PreambleLength / 4) - 1) << 4;
+
     uint8_t buf[7];
     buf[0] = PreambleLength;                    // AGCPreambleLength
     buf[1] = SX1280_FLRC_SYNC_WORD_LEN_P32S;    // SyncWordLength
@@ -444,13 +447,13 @@ void sx1280Config(const uint8_t bw, const uint8_t sfbt, const uint8_t cr,
 {
     sx1280SetMode(SX1280_MODE_STDBY_RC);
 
-    if (isFlrc)
-    {
-        sx1280WriteCommand(SX1280_RADIO_SET_PACKETTYPE, SX1280_PACKET_TYPE_FLRC);
+    sx1280PacketMode = (isFlrc) ? SX1280_PACKET_TYPE_FLRC : SX1280_PACKET_TYPE_LORA;
+    sx1280WriteCommand(SX1280_RADIO_SET_PACKETTYPE, sx1280PacketMode);
+
+    if (isFlrc) {
         sx1280ConfigModParamsFlrc(bw, cr, sfbt);
         sx1280SetPacketParamsFlrc(preambleLength, SX1280_FLRC_PACKET_FIXED_LENGTH, 8, flrcSyncWord, flrcCrcSeed, cr);
     } else {
-        sx1280WriteCommand(SX1280_RADIO_SET_PACKETTYPE, SX1280_PACKET_TYPE_LORA);
         sx1280ConfigModParamsLora(bw, sfbt, cr);
         sx1280SetPacketParamsLora(preambleLength, SX1280_LORA_PACKET_FIXED_LENGTH, 8, SX1280_LORA_CRC_OFF, iqInverted);
     }
@@ -590,10 +593,16 @@ void sx1280StartReceiving(void)
 
 void sx1280GetLastPacketStats(int8_t *rssi, int8_t *snr)
 {
-    *rssi = -(int8_t)(packetStats[0] / 2);
-    *snr = (int8_t) packetStats[1];
-    int8_t negOffset = (*snr < 0) ? (*snr / 4) : 0;
-    *rssi += negOffset;
+    if (sx1280PacketMode == SX1280_PACKET_TYPE_FLRC) {
+        // No SNR in FLRC mode
+        *rssi = -(int8_t)(packetStats[1] / 2);
+        *snr = 0;
+    } else {
+        *rssi = -(int8_t)(packetStats[0] / 2);
+        *snr = (int8_t)packetStats[1];
+        int8_t negOffset = (*snr < 0) ? (*snr / 4) : 0;
+        *rssi += negOffset;
+    }
 }
 
 void sx1280DoFHSS(void)
@@ -673,6 +682,14 @@ FAST_IRQ_HANDLER static busStatus_e sx1280IrqStatusRead(uint32_t arg)
         irqReason = ELRS_DIO_TX_DONE;
     } else if (irqStatus & SX1280_IRQ_RX_DONE) {
         irqReason = ELRS_DIO_RX_DONE;
+
+        if (sx1280PacketMode == SX1280_PACKET_TYPE_FLRC) {
+            // Reject the packet early if CRC/Syncword error or syncword valid not set
+            if ((irqStatus & (SX1280_IRQ_CRC_ERROR | SX1280_IRQ_SYNCWORD_ERROR)) ||
+                !(irqStatus & SX1280_IRQ_SYNCWORD_VALID)) {
+                irqReason |= ELRS_DIO_HWERROR;
+            }
+        }
     } else {
         irqReason = ELRS_DIO_UNKNOWN;
     }
@@ -708,7 +725,10 @@ FAST_IRQ_HANDLER static busStatus_e sx1280IrqCmdComplete(uint32_t arg)
 {
     UNUSED(arg);
 
-    sx1280SetBusyFn(sx1280ProcessIrq);
+    // If HWERROR reported on RX, just do nothing and wait for the timer to expire
+    if (!(irqReason & ELRS_DIO_HWERROR)) {
+        sx1280SetBusyFn(sx1280ProcessIrq);
+    }
 
     return BUS_READY;
 }
@@ -722,7 +742,7 @@ FAST_IRQ_HANDLER static void sx1280ProcessIrq(extiCallbackRec_t *cb)
 
     sx1280ClearBusyFn();
 
-    if (irqReason == ELRS_DIO_RX_DONE || irqReason == ELRS_DIO_UNKNOWN) {
+    if (irqReason & ELRS_DIO_RX_DONE) {
         // Fire off the chain to read and decode the packet from the radio
         // Get the buffer status to determine the FIFO address
         STATIC_DMA_DATA_AUTO uint8_t cmdBufStatusCmd[] = {SX1280_RADIO_GET_RXBUFFERSTATUS, 0, 0, 0};

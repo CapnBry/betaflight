@@ -1146,10 +1146,10 @@ rx_spi_received_e expressLrsDataReceived(uint8_t *payloadBuffer)
     handleConfigUpdate(timeStampMs);
     handleLinkStatsUpdate(timeStampMs);
 
-    //DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 0, lostConnectionCounter);
-    //DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 1, receiver.rssiFiltered);
-    //DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 2, receiver.snr / 4);
-    //DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 3, receiver.uplinkLQ);
+    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 0, lostConnectionCounter);
+    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 1, receiver.rssiFiltered);
+    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 2, receiver.snr / 4);
+    DEBUG_SET(DEBUG_RX_EXPRESSLRS_SPI, 3, receiver.uplinkLQ);
 
     receiver.inBindingMode ? rxSpiLedBlinkBind() : rxSpiLedBlinkRxLoss(rfPacketStatus);
 

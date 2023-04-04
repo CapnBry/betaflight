@@ -54,7 +54,7 @@
 #define FREQ_HZ_TO_REG_VAL_900(freq) ((uint32_t)(freq / SX127x_FREQ_STEP))
 #define FREQ_HZ_TO_REG_VAL_24(freq) ((uint32_t)(freq / SX1280_FREQ_STEP))
 
-#define ELRS_RATE_MAX_24 4
+#define ELRS_RATE_MAX_24 6
 #define ELRS_RATE_MAX_900 4
 #define ELRS_BINDING_RATE_24 5
 #define ELRS_BINDING_RATE_900 2
@@ -210,7 +210,9 @@ typedef struct elrsOtaPacket_s {
 } __attribute__ ((__packed__)) elrsOtaPacket_t;
 
 typedef bool (*elrsRxInitFnPtr)(IO_t resetPin, IO_t busyPin);
-typedef void (*elrsRxConfigFnPtr)(const uint8_t bw, const uint8_t sf, const uint8_t cr, const uint32_t freq, const uint8_t preambleLen, const bool iqInverted, const uint32_t flrcSyncWord, const uint16_t flrcCrcSeed, const bool isFlrc);
+typedef void (*elrsRxConfigFnPtr)(const uint8_t bw, const uint8_t sfbt, const uint8_t cr,
+                  const uint32_t freq, const uint8_t preambleLength, const bool iqInverted,
+                  const uint32_t flrcSyncWord, const uint16_t flrcCrcSeed, const bool isFlrc);
 typedef void (*elrsRxStartReceivingFnPtr)(void);
 typedef void (*elrsRxISRFnPtr)(void);
 typedef void (*elrsRxHandleFromTockFnPtr)(void);

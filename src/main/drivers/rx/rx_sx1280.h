@@ -337,9 +337,9 @@ void sx1280WriteBuffer(const uint8_t offset, const uint8_t *buffer, const uint8_
 void sx1280ReadBuffer(const uint8_t offset, uint8_t *buffer, const uint8_t size);
 
 uint8_t sx1280GetStatus(void);
-void sx1280Config(const uint8_t bw, const uint8_t sf, const uint8_t cr,
-    const uint32_t freq, const uint8_t preambleLength, const bool iqInverted,
-    const uint32_t flrcSyncWord, const uint16_t flrcCrcSeed, const bool isFlrc);
+void sx1280Config(const uint8_t bw, const uint8_t sfbt, const uint8_t cr,
+                  const uint32_t freq, const uint8_t preambleLength, const bool iqInverted,
+                  const uint32_t flrcSyncWord, const uint16_t flrcCrcSeed, const bool isFlrc);
 void sx1280SetOutputPower(const int8_t power);
 void sx1280SetMode(const sx1280OperatingModes_e opMode);
 void sx1280SetFrequencyReg(const uint32_t freqReg);
